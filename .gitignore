@@ -1,0 +1,21 @@
+# Python bytecode and local development files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller output; recreate with build_exe.ps1
+build/
+dist/
+*.spec
+
+# Local learning history
+.haru_japanese/
+progress.db
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+*.code-workspace
+Thumbs.db
+.DS_Store
