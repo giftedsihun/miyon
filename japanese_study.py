@@ -268,11 +268,11 @@ class JapaneseStudyApp(tk.Tk):
         ttk.Button(actions, text="목표 바꾸기", command=self.change_daily_goal).pack(side="left", padx=4)
         tk.Label(main, text="빠른 시작", font=("맑은 고딕", 16, "bold"), fg="#173c35", bg="#f4f6f0").pack(anchor="w", pady=(30, 12))
         quick = tk.Frame(main, bg="#f4f6f0"); quick.pack(fill="x")
-        for i, (title, detail, command) in enumerate((("오늘의 복습", f"지금 풀 문제 {due}개", lambda: self.start_quiz(mode="review")), ("오답 노트", "자주 틀린 항목 다시 보기", self.show_wrong_notebook), ("즐겨찾기 퀴즈", "저장한 카드만 확인", lambda: self.start_quiz(mode="favorites")), ("학습 계획", "목표와 하루 분량 설정", self.show_study_plan), ("모의고사", "어휘 · 문법 · 독해 · 청해", lambda: self.start_quiz(mode="mock")), ("과정 선택", "내 목표 직접 설정", self.show_level_select))):
+        for i, (title, detail, action) in enumerate((("오늘의 복습", f"지금 풀 문제 {due}개", lambda: self.start_quiz(mode="review")), ("오답 노트", "자주 틀린 항목 다시 보기", self.show_wrong_notebook), ("즐겨찾기 퀴즈", "저장한 카드만 확인", lambda: self.start_quiz(mode="favorites")), ("학습 계획", "목표와 하루 분량 설정", self.show_study_plan), ("모의고사", "어휘 · 문법 · 독해 · 청해", lambda: self.start_quiz(mode="mock")), ("과정 선택", "내 목표 직접 설정", self.show_level_select))):
             item = self.card(quick); item.grid(row=i // 3, column=i % 3, sticky="nsew", padx=(0, 9), pady=2); quick.columnconfigure(i % 3, weight=1)
             tk.Label(item, text=title, font=("맑은 고딕", 13, "bold"), fg="#165b52", bg="white").pack(anchor="w", padx=16, pady=(17, 4))
             tk.Label(item, text=detail, font=("맑은 고딕", 9), fg="#718078", bg="white").pack(anchor="w", padx=16)
-            ttk.Button(item, text="열기", command=command).pack(anchor="w", padx=16, pady=15)
+            ttk.Button(item, text="열기", command=action).pack(anchor="w", padx=16, pady=15)
 
     def change_daily_goal(self):
         dialog = tk.Toplevel(self); dialog.title("오늘의 목표"); dialog.configure(bg="white"); dialog.transient(self); dialog.grab_set()
