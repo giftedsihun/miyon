@@ -5,6 +5,7 @@ Tkinter scheduling, dialogs, and saved user preferences remain in the UI layer.
 
 import base64
 import hashlib
+import json
 import shutil
 
 import subprocess
@@ -87,6 +88,74 @@ ZUNDAMON_PYTHON_PACKAGES = (
     "LangSegment>=0.2.0", "g2pk2", "ko_pron", "fastapi<0.112.2", "uvicorn", "soundfile",
     "onnxruntime", "typeguard", "regex", "gruut", "pandas", "matplotlib", "einops", "inflect", "soxr",
 )
+
+# 사전 생성된 즈단몬 음성 캐시: speak_japanese가 실시간 서버 대신 즉시 재생합니다.
+VOICE_CACHE_DIRECTORY = Path(__file__).resolve().parent / "voice_cache"
+
+
+def voice_cache_path(text, speed=1.0):
+    """Return the on-disk wav path for a text+speed pair (deterministic hash)."""
+    key = hashlib.sha1(f"{text}|{speed:.2f}".encode("utf-8")).hexdigest()
+    return VOICE_CACHE_DIRECTORY / f"{key}.wav"
+
+
+def cached_voice(text, speed=1.0):
+    """Return a ready cached wav path, or None if no valid cached audio exists."""
+    path = voice_cache_path(text, speed)
+    if path.is_file() and path.stat().st_size > 1024:
+        return path
+    return None
+
+
+# ttsclient 백엔드 (w-okada/ttsclient REST API 서버)
+TTS_CLIENT_DIRECTORY = Path(__file__).resolve().parent / "ttsclient"
+TTS_CLIENT_RUNTIME = TTS_CLIENT_DIRECTORY / ".venv" / "Scripts" / "python.exe"
+TTS_CLIENT_URL = "http://127.0.0.1:19000"
+TTS_CLIENT_SERVER_LOG = TTS_CLIENT_DIRECTORY / "server.log"
+# 즈단몬 공식 샘플: voice character slot 4(즈단몬), 그 안의 참조 음성 slot 0
+TTS_CLIENT_VOICE_CHARACTER_SLOT_INDEX = 4
+TTS_CLIENT_REFERENCE_VOICE_SLOT_INDEX = 0
+TTS_CLIENT_MODEL_FILES = (
+    # (GPT 모델, SoVITS 모델, 참조 음성 wav) — ttsclient가 샘플로 내장해 둔 즈단몬 모델 파일
+    TTS_CLIENT_DIRECTORY / "models" / "3" / "zudamon_style_1-e15.ckpt",
+    TTS_CLIENT_DIRECTORY / "models" / "3" / "zudamon_style_1_e8_s96.pth",
+    TTS_CLIENT_DIRECTORY / "voice_characters" / "4" / "32883806-20c6-4822-87df-2f30c35bcac7.wav",
+)
+
+
+def ttsclient_ready():
+    """Return whether the bundled ttsclient runtime and Zundamon model files exist."""
+    gpt_sovits_src = TTS_CLIENT_DIRECTORY / "third_party" / "GPT-SoVITS" / "GPT_SoVITS"
+    if not (TTS_CLIENT_RUNTIME.is_file() and gpt_sovits_src.is_dir()):
+        return False
+    return all(file_ready(path) for path in TTS_CLIENT_MODEL_FILES)
+
+
+def ttsclient_server_command():
+    return [
+        str(TTS_CLIENT_RUNTIME), "-m", "ttsclient.main", "cui",
+        "--launch_client", "False", "--no_cui", "False",
+    ]
+
+
+def ttsclient_generate_voice(text, speed=1.0):
+    """Request WAV bytes from the ttsclient generateVoice endpoint."""
+    payload = json.dumps({
+        "voice_character_slot_index": TTS_CLIENT_VOICE_CHARACTER_SLOT_INDEX,
+        "reference_voice_slot_index": TTS_CLIENT_REFERENCE_VOICE_SLOT_INDEX,
+        "text": text,
+        "language": "all_ja",
+        "speed": speed,
+        "cutMethod": "No slice",
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        TTS_CLIENT_URL + "/api/tts-manager/operation/generateVoice",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=600) as response:
+        return response.read()
 
 
 def api_available(url, timeout=5):

@@ -64,7 +64,10 @@ from tts_service import (ZUNDAMON_API_DIRECTORY, ZUNDAMON_DIRECTORY, ZUNDAMON_GP
                           ZUNDAMON_SETUP_LOG, ZUNDAMON_SOVITS_MODEL, ZUNDAMON_URL,
                            BUNDLED_ZUNDAMON_DIRECTORY, api_available, download_file, file_ready, installation_summary,
                           endpoint_privacy_notice, missing_commands, prerequisite_error, run_command,
-                          runtime_environment, runtime_python, server_command, ready, speak_windows_native)
+                          runtime_environment, runtime_python, server_command, ready, speak_windows_native,
+                          TTS_CLIENT_DIRECTORY, TTS_CLIENT_RUNTIME, TTS_CLIENT_SERVER_LOG, TTS_CLIENT_URL,
+                          ttsclient_generate_voice, ttsclient_ready, ttsclient_server_command,
+                          cached_voice)
 
 APP_TITLE = "하루 일본어"
 DATA_DIR = Path(os.environ.get("HARU_DATA_DIR", Path.home() / ".haru_japanese"))
@@ -307,6 +310,9 @@ class JapaneseStudyApp(tk.Tk):
             self.db.set("study_plan", plan); dialog.destroy(); self.show_study_plan()
         ttk.Button(dialog, text="저장", style="Accent.TButton", command=save).pack(padx=28, pady=24, anchor="e")
 
+    def zundamon_backend(self):
+        return str(self.db.get("zundamon_backend", "ttsclient"))
+
     def zundamon_api_available(self, url, timeout=5):
         return api_available(url, timeout)
 
@@ -314,6 +320,8 @@ class JapaneseStudyApp(tk.Tk):
         return runtime_python()
 
     def zundamon_ready(self):
+        if self.zundamon_backend() == "ttsclient":
+            return ttsclient_ready()
         return ready()
 
     def zundamon_installation_summary(self):
@@ -331,11 +339,17 @@ class JapaneseStudyApp(tk.Tk):
         return missing_commands()
 
     def zundamon_status(self):
+        if self.zundamon_backend() == "ttsclient":
+            api_connected = self.zundamon_api_available(TTS_CLIENT_URL, timeout=2)
+            state, message = tts_diagnostic_summary(api_connected, self.zundamon_ready(), ())
+            return message, "#165b52" if state == "ready" else "#b95140" if state == "prerequisite" else "#66776f"
         api_connected = self.zundamon_api_available(str(self.db.get("zundamon_url", ZUNDAMON_URL)), timeout=2)
         state, message = tts_diagnostic_summary(api_connected, self.zundamon_ready(), self.zundamon_missing_commands())
         return message, "#165b52" if state == "ready" else "#b95140" if state == "prerequisite" else "#66776f"
 
     def zundamon_command(self):
+        if self.zundamon_backend() == "ttsclient":
+            return ttsclient_server_command()
         return server_command()
 
     def run_zundamon_command(self, arguments, log_file, timeout, set_status):
@@ -363,33 +377,62 @@ class JapaneseStudyApp(tk.Tk):
                 set_status("ずんだもん AI 서버를 이미 시작하고 있어요...", "#66776f")
                 return
             try:
-                if self.zundamon_api_available(url):
-                    set_status("연결됨: ずんだもん AI 서버가 이미 실행 중이에요.", "#165b52")
+                if self.zundamon_backend() == "ttsclient":
+                    self._start_ttsclient_server(set_status, url=TTS_CLIENT_URL)
                     return
-                if not self.zundamon_ready():
-                    if not self.install_zundamon_api(set_status):
-                        return
-                set_status("ずんだもん AI 서버를 시작하고 있어요. 모델을 읽는 동안 잠시 기다려 주세요...", "#66776f")
-                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                with open(ZUNDAMON_SERVER_LOG, "a", encoding="utf-8") as server_log:
-                    self.zundamon_process = subprocess.Popen(self.zundamon_command(), cwd=ZUNDAMON_API_DIRECTORY,
-                                                              stdout=server_log, stderr=subprocess.STDOUT,
-                                                              creationflags=flags, env=runtime_environment(os.environ))
-                for _ in range(180):
-                    if self.zundamon_api_available(url, timeout=2):
-                        set_status("시작 완료: ずんだもん AI 음성을 사용할 수 있어요.", "#165b52")
-                        return
-                    if self.zundamon_process.poll() is not None:
-                        set_status("AI 서버가 바로 종료됐어요. 오류는 " + str(ZUNDAMON_SERVER_LOG) + "에서 확인할 수 있어요.", "#b95140")
-                        return
-                    threading.Event().wait(1)
-                set_status("서버 시작 시간이 초과됐어요. 로그를 확인해 주세요: " + str(ZUNDAMON_SERVER_LOG), "#b95140")
+                self._start_gpt_sovits_server(set_status, url)
             except OSError as error:
                 set_status(f"AI 서버를 시작할 수 없어요. ({error})", "#b95140")
             finally:
                 self.zundamon_start_lock.release()
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _start_ttsclient_server(self, set_status, url):
+        """Launch the bundled ttsclient REST API server on port 19000."""
+        if self.zundamon_api_available(url):
+            set_status("연결됨: ずんだもん AI 서버가 이미 실행 중이에요.", "#165b52")
+            return
+        if not ttsclient_ready():
+            set_status("ttsclient 실행 파일이 준비되지 않았어요. 배포 폴더의 ttsclient를 확인해 주세요.", "#b95140")
+            return
+        set_status("ずんだもん AI 서버를 시작하고 있어요. 모델을 읽는 동안 잠시 기다려 주세요...", "#66776f")
+        with open(TTS_CLIENT_SERVER_LOG, "a", encoding="utf-8") as server_log:
+            self.zundamon_process = subprocess.Popen(self.zundamon_command(), cwd=str(TTS_CLIENT_DIRECTORY),
+                                                     stdout=server_log, stderr=subprocess.STDOUT,
+                                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        for _ in range(600):
+            if self.zundamon_api_available(url, timeout=2):
+                set_status("시작 완료: ずんだもん AI 음성을 사용할 수 있어요.", "#165b52")
+                return
+            if self.zundamon_process.poll() is not None:
+                set_status("AI 서버가 바로 종료됐어요. 오류는 " + str(TTS_CLIENT_SERVER_LOG) + "에서 확인할 수 있어요.", "#b95140")
+                return
+            threading.Event().wait(1)
+        set_status("서버 시작 시간이 초과됐어요. 로그를 확인해 주세요: " + str(TTS_CLIENT_SERVER_LOG), "#b95140")
+
+    def _start_gpt_sovits_server(self, set_status, url):
+        if self.zundamon_api_available(url):
+            set_status("연결됨: ずんだもん AI 서버가 이미 실행 중이에요.", "#165b52")
+            return
+        if not self.zundamon_ready():
+            if not self.install_zundamon_api(set_status):
+                return
+        set_status("ずんだもん AI 서버를 시작하고 있어요. 모델을 읽는 동안 잠시 기다려 주세요...", "#66776f")
+        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        with open(ZUNDAMON_SERVER_LOG, "a", encoding="utf-8") as server_log:
+            self.zundamon_process = subprocess.Popen(self.zundamon_command(), cwd=ZUNDAMON_API_DIRECTORY,
+                                                     stdout=server_log, stderr=subprocess.STDOUT,
+                                                     creationflags=flags, env=runtime_environment(os.environ))
+        for _ in range(180):
+            if self.zundamon_api_available(url, timeout=2):
+                set_status("시작 완료: ずんだもん AI 음성을 사용할 수 있어요.", "#165b52")
+                return
+            if self.zundamon_process.poll() is not None:
+                set_status("AI 서버가 바로 종료됐어요. 오류는 " + str(ZUNDAMON_SERVER_LOG) + "에서 확인할 수 있어요.", "#b95140")
+                return
+            threading.Event().wait(1)
+        set_status("서버 시작 시간이 초과됐어요. 로그를 확인해 주세요: " + str(ZUNDAMON_SERVER_LOG), "#b95140")
 
     def install_zundamon_api(self, set_status):
         """Prepare the compatible runtime, models, and local Zundamon API on first use."""
@@ -569,9 +612,63 @@ class JapaneseStudyApp(tk.Tk):
 
     def speak_japanese(self, text, status=None, rate=0):
         self.stop_speech()
+        try:
+            speed = float(self.db.get("zundamon_speed", 1.0)) * (1 + rate / 20)
+        except (TypeError, ValueError):
+            speed = 1.0
+        cached = cached_voice(text, max(0.5, min(2.0, speed)))
+        if cached:
+            winsound.PlaySound(str(cached), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            if status:
+                self.after(0, lambda: status.winfo_exists() and status.config(text="사전 생성된 ずんだもん 음성으로 재생 중이에요.", fg="#165b52"))
+            return
         self.speak_with_zundamon(text, status, rate)
 
     def speak_with_zundamon(self, text, status=None, rate=0):
+        """Request WAV audio from the local Zundamon voice server (ttsclient or GPT-SoVITS API)."""
+        if self.zundamon_backend() == "ttsclient":
+            self._speak_with_ttsclient(text, status, rate)
+            return
+        self._speak_with_gpt_sovits(text, status, rate)
+
+    def _speak_with_ttsclient(self, text, status=None, rate=0):
+        url = TTS_CLIENT_URL
+        try:
+            speed = float(self.db.get("zundamon_speed", 1.0)) * (1 + rate / 20)
+        except (TypeError, ValueError):
+            if status: status.config(text="AI 음성 설정 값이 올바르지 않습니다. 홈의 AI 음성 설정을 확인해 주세요.", fg="#b95140")
+            return
+        if status: status.config(text="ずんだもん AI 서버와 음성을 준비하고 있어요...", fg="#66776f")
+        def run():
+            try:
+                if not self.zundamon_api_available(url, timeout=2):
+                    if ttsclient_ready():
+                        self.start_zundamon_api(status)
+                        for _ in range(600):
+                            if self.zundamon_api_available(url, timeout=2):
+                                break
+                            threading.Event().wait(1)
+                        else:
+                            raise OSError("AI 서버 준비 시간이 초과됐습니다.")
+                    else:
+                        if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status.winfo_exists() else None)
+                        speak_windows_native(text, rate)
+                        return
+                if status: self.after(0, lambda: status.winfo_exists() and status.config(text="ずんだもん AI 음성이 발음을 만들고 있어요...", fg="#66776f"))
+                audio = ttsclient_generate_voice(text, max(0.5, min(2.0, speed)))
+                if not audio.startswith(b"RIFF"):
+                    raise OSError("ずんだもん API가 WAV 오디오를 반환하지 않았습니다.")
+                path = tempfile.NamedTemporaryFile(prefix="haru_japanese_", suffix=".wav", delete=False).name
+                with open(path, "wb") as audio_file: audio_file.write(audio)
+                self.speech_audio_path = path
+                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                if status: self.after(0, lambda: status.config(text="ずんだもん AI 음성으로 재생 중이에요.", fg="#165b52"))
+            except Exception:
+                if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status and status.winfo_exists() else None)
+                speak_windows_native(text, rate)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _speak_with_gpt_sovits(self, text, status=None, rate=0):
         """Request WAV audio from the user-run Zundamon GPT-SoVITS API server."""
         url = str(self.db.get("zundamon_url", ZUNDAMON_URL)).rstrip("/")
         try:

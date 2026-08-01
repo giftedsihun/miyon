@@ -15,7 +15,7 @@ from learning_services import (DEFAULT_TEXT_SCALE, THEME_LABELS, display_scale,
 from storage import BACKUP_DIRECTORY, DATA_DIR
 from study_logic import tts_recovery_steps
 from tts_service import (ZUNDAMON_SETUP_LOG, ZUNDAMON_SERVER_LOG, ZUNDAMON_URL,
-                         endpoint_privacy_notice)
+                         TTS_CLIENT_URL, endpoint_privacy_notice)
 
 
 def show_display_settings(app):
@@ -139,19 +139,45 @@ def show_voice_settings(app, start=False):
     tk.Label(dialog, text="ずんだもん 로컬 AI 음성", font=("맑은 고딕", 16, "bold"), fg="#173c35", bg="white").pack(anchor="w", padx=28, pady=(24, 4))
     tk.Label(dialog, text="서버 시작을 누르면 Python 3.9 환경, 필요한 패키지와 모델을 자동으로 준비합니다.\n처음에는 대용량 파일을 내려받아 시간이 걸리며, 진행 오류는 설정 로그에 저장됩니다.", font=("맑은 고딕", 10), fg="#66776f", bg="white", justify="left").pack(anchor="w", padx=28, pady=(0, 8))
     values = {}
-    for label, key, default in (("API 서버 주소", "zundamon_url", ZUNDAMON_URL), ("기본 속도 (0.5~2.0)", "zundamon_speed", "1.0")):
-        row = tk.Frame(dialog, bg="white"); row.pack(fill="x", padx=28, pady=4)
-        tk.Label(row, text=label, width=18, anchor="w", font=("맑은 고딕", 10), fg="#173c35", bg="white").pack(side="left")
-        value = tk.StringVar(value=str(app.db.get(key, default))); values[key] = value
-        ttk.Entry(row, textvariable=value, width=32, font=("맑은 고딕", 10)).pack(side="left", fill="x", expand=True)
+    backend = tk.StringVar(value=str(app.db.get("zundamon_backend", "ttsclient")))
+    backend_row = tk.Frame(dialog, bg="white"); backend_row.pack(fill="x", padx=28, pady=4)
+    tk.Label(backend_row, text="음성 엔진", width=18, anchor="w", font=("맑은 고딕", 10), fg="#173c35", bg="white").pack(side="left")
+    ttk.Combobox(backend_row, textvariable=backend, state="readonly", width=30, values=("ttsclient", "gpt_sovits"), font=("맑은 고딕", 10)).pack(side="left", fill="x", expand=True)
+    url_row = tk.Frame(dialog, bg="white"); url_row.pack(fill="x", padx=28, pady=4)
+    tk.Label(url_row, text="API 서버 주소", width=18, anchor="w", font=("맑은 고딕", 10), fg="#173c35", bg="white").pack(side="left")
+    value = tk.StringVar(value=str(app.db.get("zundamon_url", ZUNDAMON_URL))); values["zundamon_url"] = value
+    url_entry = ttk.Entry(url_row, textvariable=value, width=32, font=("맑은 고딕", 10)); url_entry.pack(side="left", fill="x", expand=True)
+    speed_row = tk.Frame(dialog, bg="white"); speed_row.pack(fill="x", padx=28, pady=4)
+    tk.Label(speed_row, text="기본 속도 (0.5~2.0)", width=18, anchor="w", font=("맑은 고딕", 10), fg="#173c35", bg="white").pack(side="left")
+    value = tk.StringVar(value=str(app.db.get("zundamon_speed", "1.0"))); values["zundamon_speed"] = value
+    ttk.Entry(speed_row, textvariable=value, width=32, font=("맑은 고딕", 10)).pack(side="left", fill="x", expand=True)
+
+    def refresh_backend(*_):
+        is_ttsclient = backend.get() == "ttsclient"
+        url_row.pack_forget()
+        if is_ttsclient:
+            backend_hint.config(text="번들된 ttsclient 서버(port 19000)를 사용해요. 주소를 따로 입력할 필요가 없어요.")
+        else:
+            url_row.pack(fill="x", padx=28, pady=4)
+            backend_hint.config(text="GPT-SoVITS API 서버 주소를 입력해요 (예: http://127.0.0.1:9880).")
+
+    backend_hint = tk.Label(dialog, font=("맑은 고딕", 9), fg="#66776f", bg="white", wraplength=430, justify="left"); backend_hint.pack(anchor="w", padx=28, pady=(2, 0))
+    backend.trace_add("write", refresh_backend); refresh_backend()
+
     privacy = tk.Label(dialog, font=("맑은 고딕", 9), fg="#718078", bg="white", wraplength=430, justify="left"); privacy.pack(anchor="w", padx=28, pady=(3, 0))
 
-    def refresh_privacy(*_):
-        url = values["zundamon_url"].get().strip()
-        external = url and not endpoint_privacy_notice(url).startswith("로컬")
-        privacy.config(text=endpoint_privacy_notice(url or ZUNDAMON_URL), fg="#b95140" if external else "#718078")
+    def privacy_url():
+        if backend.get() == "ttsclient":
+            return TTS_CLIENT_URL
+        return values["zundamon_url"].get().strip() or ZUNDAMON_URL
 
-    values["zundamon_url"].trace_add("write", refresh_privacy); refresh_privacy()
+    def refresh_privacy(*_):
+        url = privacy_url()
+        external = url and not endpoint_privacy_notice(url).startswith("로컬")
+        privacy.config(text=endpoint_privacy_notice(url), fg="#b95140" if external else "#718078")
+
+    values["zundamon_url"].trace_add("write", refresh_privacy)
+    backend.trace_add("write", refresh_privacy); refresh_privacy()
     status = tk.Label(dialog, text="", font=("맑은 고딕", 9), fg="#66776f", bg="white", wraplength=430, justify="left"); status.pack(anchor="w", padx=28, pady=(10, 0))
     diagnostics = tk.Label(dialog, text="", font=("맑은 고딕", 9), fg="#718078", bg="white", wraplength=430, justify="left"); diagnostics.pack(anchor="w", padx=28, pady=(5, 0))
     recovery = tk.Label(dialog, text="", font=("맑은 고딕", 9), fg="#66776f", bg="white", wraplength=430, justify="left"); recovery.pack(anchor="w", padx=28, pady=(5, 0))
@@ -160,20 +186,23 @@ def show_voice_settings(app, start=False):
 
     def settings():
         try:
-            return values["zundamon_url"].get().strip().rstrip("/"), max(0.5, min(2.0, float(values["zundamon_speed"].get())))
+            speed = max(0.5, min(2.0, float(values["zundamon_speed"].get())))
         except ValueError:
             raise ValueError("속도는 0.5~2.0 사이의 숫자로 입력해 주세요.")
+        if backend.get() == "ttsclient":
+            return TTS_CLIENT_URL, speed
+        return values["zundamon_url"].get().strip().rstrip("/"), speed
 
     def save():
         try:
             url, speed = settings()
         except ValueError as error:
             status.config(text=str(error), fg="#b95140"); return
-        if not url.startswith(("http://", "https://")):
+        if backend.get() != "ttsclient" and not url.startswith(("http://", "https://")):
             status.config(text="서버 주소는 http:// 또는 https://로 시작해야 합니다.", fg="#b95140"); return
-        if not endpoint_privacy_notice(url).startswith("로컬") and not messagebox.askyesno("외부 AI 서버 경고", endpoint_privacy_notice(url) + "\n\n이 주소를 저장할까요?", parent=dialog):
+        if backend.get() != "ttsclient" and not endpoint_privacy_notice(url).startswith("로컬") and not messagebox.askyesno("외부 AI 서버 경고", endpoint_privacy_notice(url) + "\n\n이 주소를 저장할까요?", parent=dialog):
             return
-        for key, value in (("zundamon_url", url), ("zundamon_speed", speed), ("zundamon_auto_start", auto_start.get())):
+        for key, value in (("zundamon_backend", backend.get()), ("zundamon_url", url), ("zundamon_speed", speed), ("zundamon_auto_start", auto_start.get())):
             app.db.set(key, value)
         status.config(text="저장했어요. 앱은 준비된 ずんだもん AI 서버만 사용합니다.", fg="#165b52")
 
@@ -187,7 +216,8 @@ def show_voice_settings(app, start=False):
                 url, _ = settings()
                 if not app.zundamon_api_available(url):
                     raise OSError("API 서버가 응답하지 않았습니다.")
-                app.after(0, lambda: status.config(text="연결됨: ずんだもん GPT-SoVITS API 서버를 찾았어요.", fg="#165b52"))
+                engine = "번들 ttsclient" if backend.get() == "ttsclient" else "GPT-SoVITS"
+                app.after(0, lambda: status.config(text=f"연결됨: ずんだもん {engine} 서버를 찾았어요.", fg="#165b52"))
             except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
                 app.after(0, lambda: status.config(text=f"연결할 수 없어요. API 서버 실행과 주소를 확인해 주세요. ({error})", fg="#b95140"))
         threading.Thread(target=run, daemon=True).start()
@@ -196,11 +226,18 @@ def show_voice_settings(app, start=False):
         message, color = app.zundamon_status()
         status.config(text=message, fg=color)
         missing = app.zundamon_missing_commands()
-        required_total, required_ready, model_total, model_ready = app.zundamon_installation_summary()
-        diagnostics.config(text=("검사: " + ("필수 도구 모두 확인됨" if not missing else "누락: " + ", ".join(missing)) + f"\n실행 파일: {required_ready}/{required_total} · 모델 파일: {model_ready}/{model_total}\n설정 로그: {ZUNDAMON_SETUP_LOG}\n서버 로그: {ZUNDAMON_SERVER_LOG}"), fg="#b95140" if missing else "#718078")
-        api_connected = app.zundamon_api_available(str(app.db.get("zundamon_url", ZUNDAMON_URL)), timeout=2)
-        state = "ready" if api_connected else "stopped" if app.zundamon_ready() else "prerequisite" if missing else "setup"
-        steps = tts_recovery_steps(state, missing)
+        if backend.get() == "ttsclient":
+            required_total, required_ready, model_total, model_ready = app.zundamon_installation_summary()
+            diagnostics.config(text=("검사: 번들 ttsclient" + f"\n실행 파일: {required_ready}/{required_total} · 모델 파일: {model_ready}/{model_total}\n서버 로그: {TTS_CLIENT_URL}"), fg="#718078")
+            api_connected = app.zundamon_api_available(TTS_CLIENT_URL, timeout=2)
+            state = "ready" if api_connected else "stopped" if app.zundamon_ready() else "setup"
+            steps = tts_recovery_steps(state, ())
+        else:
+            required_total, required_ready, model_total, model_ready = app.zundamon_installation_summary()
+            diagnostics.config(text=("검사: " + ("필수 도구 모두 확인됨" if not missing else "누락: " + ", ".join(missing)) + f"\n실행 파일: {required_ready}/{required_total} · 모델 파일: {model_ready}/{model_total}\n설정 로그: {ZUNDAMON_SETUP_LOG}\n서버 로그: {ZUNDAMON_SERVER_LOG}"), fg="#b95140" if missing else "#718078")
+            api_connected = app.zundamon_api_available(str(app.db.get("zundamon_url", ZUNDAMON_URL)), timeout=2)
+            state = "ready" if api_connected else "stopped" if app.zundamon_ready() else "prerequisite" if missing else "setup"
+            steps = tts_recovery_steps(state, missing)
         recovery.config(text="다음 단계: " + "\n".join(f"- {step}" for step in steps))
 
     controls = tk.Frame(dialog, bg="white"); controls.pack(anchor="e", padx=28, pady=(14, 24))

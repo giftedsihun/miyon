@@ -8,6 +8,11 @@ venv/
 build/
 dist/
 
+# Bundled ttsclient server (12GB+, development repo only) and generated voice cache
+ttsclient/
+voice_cache/
+voice_cache_build.log
+
 # Local learning history
 .haru_japanese/
 progress.db
