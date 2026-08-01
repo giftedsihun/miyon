@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and attach release artifacts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build EXE
+        run: .\build_exe.ps1
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y --limit-output
+
+      - name: Build installer (unsigned)
+        shell: pwsh
+        run: .\build_installer.ps1 -SkipExeBuild
+        env:
+          # Optional code signing: provide a certificate (e.g. Azure Trusted
+          # Signing) and pass the required parameters to build_installer.ps1.
+          # CI keeps the build unsigned until a signing identity is configured.
+          CERT_README: "Signing is not enabled in CI yet; see build_installer.ps1."
+
+      - name: Stage artifacts and compute SHA-256 checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging -Force | Out-Null
+          $artifacts = Get-ChildItem -LiteralPath "dist" -Recurse -File |
+            Where-Object { $_.Name -match "HaruJapanese.*\.exe$" }
+          foreach ($a in $artifacts) {
+            Copy-Item -LiteralPath $a.FullName -Destination staging -Force
+          }
+          Get-ChildItem -LiteralPath staging -File |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash, $_.Name } |
+            Sort-Object |
+            Set-Content -LiteralPath (Join-Path $PWD "staging\SHA256SUMS.txt") -Encoding ascii
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: staging/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

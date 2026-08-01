@@ -1,0 +1,2 @@
+# Packaging dependency; the application itself uses Python's standard library.
+pyinstaller>=6.0,<7.0
