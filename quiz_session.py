@@ -35,7 +35,13 @@ class QuizSession:
         if not self.current:
             return []
         _, answer, distractors, _ = self.current
-        values = self._random.sample(distractors, min(3, len(distractors))) + [answer]
+        seen = {answer}
+        unique = []
+        for distractor in distractors:
+            if distractor not in seen:
+                seen.add(distractor)
+                unique.append(distractor)
+        values = self._random.sample(unique, min(3, len(unique))) + [answer]
         self._random.shuffle(values)
         return values
 

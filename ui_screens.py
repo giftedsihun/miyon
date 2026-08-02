@@ -342,7 +342,7 @@ def render_review(app):
         days_until = (date.fromisoformat(due_date) - date.today()).days
         timing = "내일" if days_until == 1 else f"{days_until}일 뒤"
         tk.Label(row, text=app.readable_content_id(content_id), font=("맑은 고딕", 10, "bold"), fg="#173c35", bg="white").pack(side="left", padx=15, pady=11)
-        tk.Label(row, text=f"{timing} · {due_date} · {SRS_DAYS[step]}일 간격", font=("맑은 고딕", 9), fg="#66776f", bg="white").pack(side="right", padx=15)
+        tk.Label(row, text=f"{timing} · {due_date} · {SRS_DAYS[min(max(0, step), len(SRS_DAYS) - 1)]}일 간격", font=("맑은 고딕", 9), fg="#66776f", bg="white").pack(side="right", padx=15)
 
 
 def render_stats(app):

@@ -74,6 +74,13 @@ DATA_DIR = Path(os.environ.get("HARU_DATA_DIR", Path.home() / ".haru_japanese"))
 LEVEL_ORDER = ["초보", "문자", "N5", "N4", "N3", "N2", "N1"]
 
 
+def _safe_int_value(variable, default):
+    try:
+        return int(variable.get())
+    except (tk.TclError, ValueError):
+        return default
+
+
 def mock_exam_comparison(current_score, current_total, previous):
     return _mock_exam_comparison(current_score, current_total, previous)
 
@@ -145,9 +152,21 @@ class JapaneseStudyApp(tk.Tk):
         self.speech_lock = threading.Lock()
         self.zundamon_process = None
         self.speech_audio_path = None
+        self.speech_generation = 0
         self.configure_styles(); self.show_home()
         self.after(250, self.show_first_run_guide)
         self.after(500, self.auto_start_zundamon)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_close(self):
+        self.stop_speech()
+        process = self.zundamon_process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+        self.destroy()
 
     def configure_styles(self):
         style = ttk.Style(self); style.theme_use("clam")
@@ -285,8 +304,8 @@ class JapaneseStudyApp(tk.Tk):
         review_limit = tk.IntVar(value=normalized_review_limit(self.db.get("review_limit", DEFAULT_REVIEW_LIMIT)))
         ttk.Spinbox(dialog, from_=5, to=50, increment=5, textvariable=review_limit, width=8, justify="center", font=("맑은 고딕", 12)).pack(pady=4)
         def save():
-            self.db.set("daily_goal", max(5, min(100, value.get())))
-            self.db.set("review_limit", normalized_review_limit(review_limit.get()))
+            self.db.set("daily_goal", max(5, min(100, _safe_int_value(value, self.db.get("daily_goal", 20)))))
+            self.db.set("review_limit", normalized_review_limit(_safe_int_value(review_limit, self.db.get("review_limit", DEFAULT_REVIEW_LIMIT))))
             dialog.destroy(); self.show_home()
         ttk.Button(dialog, text="저장", style="Accent.TButton", command=save).pack(pady=(14, 24))
 
@@ -304,7 +323,7 @@ class JapaneseStudyApp(tk.Tk):
         tk.Label(dialog, text="하루 새 단어 수", font=("맑은 고딕", 11, "bold"), bg="white").pack(padx=28, pady=(14, 3), anchor="w")
         daily_words = tk.IntVar(value=current.get("daily_words", 10)); ttk.Spinbox(dialog, from_=3, to=50, textvariable=daily_words, width=10).pack(padx=28, anchor="w")
         def save():
-            plan = normalized_study_plan({"level": level.get(), "days": days.get(), "daily_words": daily_words.get()})
+            plan = normalized_study_plan({"level": level.get(), "days": _safe_int_value(days, current.get("days", 30)), "daily_words": _safe_int_value(daily_words, current.get("daily_words", 10))})
             if plan["level"] != current["level"]:
                 self.db.set("course_day", 1)
                 self.db.set("course_last_completed", None)
@@ -522,8 +541,11 @@ class JapaneseStudyApp(tk.Tk):
                 except (OSError, urllib.error.URLError) as error:
                     set_status(f"기준 음성 다운로드에 실패했어요. 인터넷 연결을 확인해 주세요. ({error})", "#b95140")
                     return False
-            self.db.set("zundamon_api_directory", str(ZUNDAMON_API_DIRECTORY))
-            self.db.set("zundamon_auto_start", True)
+            try:
+                self.after(0, lambda: self.db.set("zundamon_api_directory", str(ZUNDAMON_API_DIRECTORY)))
+                self.after(0, lambda: self.db.set("zundamon_auto_start", True))
+            except RuntimeError:
+                pass
             ZUNDAMON_READY_MARKER.write_text(ZUNDAMON_READY_CONTENT, encoding="ascii")
             set_status("ずんだもん AI 음성 준비가 끝났어요. 서버를 시작합니다...", "#165b52")
             return True
@@ -620,7 +642,10 @@ class JapaneseStudyApp(tk.Tk):
             speed = 1.0
         cached = cached_voice(text, max(0.5, min(2.0, speed)))
         if cached:
-            winsound.PlaySound(str(cached), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            try:
+                winsound.PlaySound(str(cached), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except RuntimeError:
+                pass
             if status:
                 self.after(0, lambda: status.winfo_exists() and status.config(text="사전 생성된 ずんだもん 음성으로 재생 중이에요.", fg="#165b52"))
             return
@@ -642,12 +667,19 @@ class JapaneseStudyApp(tk.Tk):
             return
         if status: status.config(text="ずんだもん AI 서버와 음성을 준비하고 있어요...", fg="#66776f")
         def run():
+            with self.speech_lock:
+                self.speech_generation += 1
+                generation = self.speech_generation
             try:
                 if not self.zundamon_api_available(url, timeout=2):
                     if ttsclient_ready():
                         def server_status(message, color):
                             if status: self.after(0, lambda: status.config(text=message, fg=color) if status.winfo_exists() else None)
-                        self._start_ttsclient_server(server_status, url=TTS_CLIENT_URL)
+                        if self.zundamon_start_lock.acquire(blocking=False):
+                            try:
+                                self._start_ttsclient_server(server_status, url=TTS_CLIENT_URL)
+                            finally:
+                                self.zundamon_start_lock.release()
                         for _ in range(600):
                             if self.zundamon_api_available(url, timeout=2):
                                 break
@@ -664,12 +696,19 @@ class JapaneseStudyApp(tk.Tk):
                     raise OSError("ずんだもん API가 WAV 오디오를 반환하지 않았습니다.")
                 path = tempfile.NamedTemporaryFile(prefix="haru_japanese_", suffix=".wav", delete=False).name
                 with open(path, "wb") as audio_file: audio_file.write(audio)
-                self._set_speech_audio_path(path)
+                if not self._set_speech_audio_path(path, generation):
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                self.after(int(max(1, len(audio) / 32000) * 1000) + 1000, lambda p=path, g=generation: self._cleanup_played_speech(p, g))
                 if status: self.after(0, lambda: status.config(text="ずんだもん AI 음성으로 재생 중이에요.", fg="#165b52"))
             except Exception:
-                if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status and status.winfo_exists() else None)
-                speak_windows_native(text, rate)
+                if self._speech_is_current(generation):
+                    if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status and status.winfo_exists() else None)
+                    speak_windows_native(text, rate)
         threading.Thread(target=run, daemon=True).start()
 
     def _speak_with_gpt_sovits(self, text, status=None, rate=0):
@@ -685,6 +724,9 @@ class JapaneseStudyApp(tk.Tk):
         }).encode("utf-8")
         if status: status.config(text="ずんだもん AI 서버와 음성을 준비하고 있어요...", fg="#66776f")
         def run():
+            with self.speech_lock:
+                self.speech_generation += 1
+                generation = self.speech_generation
             try:
                 if not self.zundamon_api_available(url, timeout=2):
                     if ready():
@@ -715,18 +757,27 @@ class JapaneseStudyApp(tk.Tk):
                     raise OSError("ずんだもん API가 WAV 오디오를 반환하지 않았습니다.")
                 path = tempfile.NamedTemporaryFile(prefix="haru_japanese_", suffix=".wav", delete=False).name
                 with open(path, "wb") as audio_file: audio_file.write(audio)
-                self._set_speech_audio_path(path)
+                if not self._set_speech_audio_path(path, generation):
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                self.after(int(max(1, len(audio) / 32000) * 1000) + 1000, lambda p=path, g=generation: self._cleanup_played_speech(p, g))
                 if status: self.after(0, lambda: status.config(text="ずんだもん AI 음성으로 재생 중이에요.", fg="#165b52"))
             except Exception:
-                if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status and status.winfo_exists() else None)
-                speak_windows_native(text, rate)
+                if self._speech_is_current(generation):
+                    if status: self.after(0, lambda: status.config(text="Windows 내장 음성으로 재생 중이에요.", fg="#165b52") if status and status.winfo_exists() else None)
+                    speak_windows_native(text, rate)
         threading.Thread(target=run, daemon=True).start()
 
 
-    def _set_speech_audio_path(self, path):
-        """Swap the active speech file, cleaning up any superseded temp file."""
+    def _set_speech_audio_path(self, path, generation):
+        """Register this speech's temp file if it is still the current generation."""
         with self.speech_lock:
+            if generation != self.speech_generation:
+                return False
             previous = self.speech_audio_path
             self.speech_audio_path = path
         if previous and previous != path:
@@ -734,10 +785,25 @@ class JapaneseStudyApp(tk.Tk):
                 Path(previous).unlink(missing_ok=True)
             except OSError:
                 pass
+        return True
+
+    def _speech_is_current(self, generation):
+        with self.speech_lock:
+            return generation == self.speech_generation
+
+    def _cleanup_played_speech(self, path, generation):
+        with self.speech_lock:
+            if generation == self.speech_generation and self.speech_audio_path == path:
+                self.speech_audio_path = None
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def stop_speech(self):
         winsound.PlaySound(None, winsound.SND_PURGE)
         with self.speech_lock:
+            self.speech_generation += 1
             path = self.speech_audio_path
             self.speech_audio_path = None
         if path:
@@ -774,7 +840,7 @@ class JapaneseStudyApp(tk.Tk):
             tk.Label(row, text=label, font=("맑은 고딕", 10, "bold"), fg="#173c35", bg="white").pack(side="left")
             ttk.Spinbox(row, from_=minimum, to=maximum, increment=1, textvariable=value, width=7, justify="center").pack(side="right")
         def start():
-            chosen = normalized_mock_exam({"questions": questions.get(), "minutes": minutes.get()})
+            chosen = normalized_mock_exam({"questions": _safe_int_value(questions, settings["questions"]), "minutes": _safe_int_value(minutes, settings["minutes"])})
             self.db.set("mock_exam", chosen); dialog.destroy()
             self.start_quiz(mode="mock", title="시간 제한 모의고사", quiz_limit=chosen["questions"], time_limit=chosen["minutes"] * 60)
         ttk.Button(dialog, text="시험 시작", style="Accent.TButton", command=start).pack(anchor="e", padx=28, pady=24)
@@ -863,7 +929,16 @@ class JapaneseStudyApp(tk.Tk):
             return
         pool = list(pool) if pool is not None else self.question_pool(mode, kana_set)
         if not pool:
-            messagebox.showinfo("복습", "지금 예정된 복습이 없어요. 새 학습을 진행해 보세요."); return
+            if mode in ("reading", "listening", "mock"):
+                messagebox.showinfo("시험 대비", "독해·청해·모의고사는 N5 과정을 선택한 뒤 시작할 수 있어요.")
+                self.select_level("N5")
+            elif mode == "favorites":
+                messagebox.showinfo("즐겨찾기 퀴즈", "저장된 카드가 없어요. 학습 화면에서 카드를 즐겨찾기에 추가해 보세요.")
+            elif mode in ("review", "weak"):
+                messagebox.showinfo("복습", "지금 예정된 복습이 없어요. 새 학습을 진행해 보세요.")
+            else:
+                messagebox.showinfo("퀴즈", "풀 수 있는 문제가 없어요. 다른 과정이나 유형을 선택해 보세요.")
+            return
         default_limit = 12 if mode in ("diagnostic", "mock") else min(10, len(pool))
         self.quiz_session = QuizSession(mode, pool, quiz_limit or default_limit, time_limit)
         self.quiz_mode, self.quiz_pool = mode, self.quiz_session.pool
@@ -894,6 +969,12 @@ class JapaneseStudyApp(tk.Tk):
         minutes, seconds = divmod(max(0, self.quiz_time_remaining), 60)
         self.quiz_timer.config(text=f"남은 시간 {minutes:02d}:{seconds:02d}")
         if self.quiz_session.tick():
+            if self.quiz_quality_pending and self.quiz_answered:
+                content_id = self.quiz_session.confirm_quality()
+                if content_id:
+                    self.db.record_answer(content_id, True, "normal")
+                    if ":reading:" in content_id or ":listening:" in content_id:
+                        self.db.complete_practice_item(content_id)
             self.finish_quiz(); return
         self.quiz_time_remaining = self.quiz_session.time_remaining
         self.quiz_timer_after_id = self.after(1000, self.update_quiz_timer)
@@ -1017,7 +1098,7 @@ class JapaneseStudyApp(tk.Tk):
                     f"틀린 {len(retry_questions)}문항을 지금 다시 풀어볼까요?",
                 )
                 if retry:
-                    self.start_quiz(mode="retry", title="모의고사 오답 다시 풀기", pool=retry_questions)
+                    self.start_quiz(mode="retry", title="모의고사 오답 다시 풀기", pool=retry_questions, quiz_limit=len(retry_questions))
                     return
             else:
                 messagebox.showinfo(
@@ -1035,7 +1116,7 @@ class JapaneseStudyApp(tk.Tk):
                 "지금 바로 틀린 문제를 다시 풀어볼까요?",
             )
             if retry:
-                self.start_quiz(mode="retry", title="방금 틀린 문제 다시 풀기", pool=retry_questions)
+                self.start_quiz(mode="retry", title="방금 틀린 문제 다시 풀기", pool=retry_questions, quiz_limit=len(retry_questions))
                 return
         else:
             messagebox.showinfo("퀴즈 완료", f"{self.quiz_limit}문항 중 {self.quiz_score}문항 정답 ({rate}%)\n모든 문제를 맞혔어요. 훌륭합니다!")
@@ -1061,7 +1142,7 @@ class JapaneseStudyApp(tk.Tk):
         for content_id, correct, wrong, due_date, interval_step in rows:
             row = self.card(main); row.pack(fill="x", pady=4)
             tk.Label(row, text=self.readable_content_id(content_id), font=("맑은 고딕", 11, "bold"), fg="#173c35", bg="white").pack(side="left", padx=16, pady=14)
-            tk.Label(row, text=f"오답 {wrong} · 정답 {correct} · {SRS_DAYS[interval_step]}일 간격", font=("맑은 고딕", 10, "bold"), fg="#b95140", bg="white").pack(side="right", padx=16)
+            tk.Label(row, text=f"오답 {wrong} · 정답 {correct} · {SRS_DAYS[min(max(0, interval_step), len(SRS_DAYS) - 1)]}일 간격", font=("맑은 고딕", 10, "bold"), fg="#b95140", bg="white").pack(side="right", padx=16)
         ttk.Button(main, text="오답 다시 풀기", style="Accent.TButton", command=lambda: self.start_quiz(mode="weak")).pack(anchor="e", pady=18)
 
 

@@ -198,8 +198,12 @@ def api_available(url, timeout=5):
 
 def is_local_endpoint(url):
     """Accept loopback-only defaults without treating arbitrary URLs as private."""
-    value = str(url).strip().lower().split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
-    return value in {"127.0.0.1", "localhost", "::1"}
+    from urllib.parse import urlparse
+    try:
+        hostname = (urlparse(str(url).strip()).hostname or "").lower()
+    except ValueError:
+        return False
+    return hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 def endpoint_privacy_notice(url):

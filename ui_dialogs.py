@@ -98,7 +98,7 @@ def show_backup_restore(app):
             return
         try:
             recovery_backup = app.db.restore_backup(source)
-        except (OSError, sqlite3.Error) as error:
+        except (OSError, ValueError, sqlite3.Error) as error:
             messagebox.showerror("복원 실패", f"백업 파일을 복원하지 못했어요.\n{error}", parent=dialog); return
         app.selected_level = app.db.get("level", "초보")
         messagebox.showinfo("복원 완료", f"학습 기록을 복원했어요.\n이전 기록 백업: {recovery_backup}", parent=dialog)

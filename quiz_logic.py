@@ -48,8 +48,9 @@ def question_pool(mode, selected_level, kana_set=None, content_levels=None,
         return personal_word_question_pool(personal_words)
     if mode == "diagnostic":
         chars = kana_set or KANA
-        for char, reading in random.sample(chars, 2):
-            pool.append((f"「{char}」의 발음은 무엇인가요?", reading, [x[1] for x in chars if x[1] != reading], f"kana:{char}"))
+        if len(chars) >= 2:
+            for char, reading in random.sample(chars, 2):
+                pool.append((f"「{char}」의 발음은 무엇인가요?", reading, [x[1] for x in chars if x[1] != reading], f"kana:{char}"))
         for level in ("N5", "N4", "N3", "N2", "N1"):
             word, reading, meaning, _ = random.choice(CONTENT[level]["words"])
             pattern, explanation, _ = random.choice(CONTENT[level]["grammar"])
@@ -114,9 +115,7 @@ def question_pool(mode, selected_level, kana_set=None, content_levels=None,
     if mode == "favorites":
         ids = favorite_ids or set()
         levels = [level for level in CONTENT if any(content_id.startswith(f"{level}:") for content_id in ids)]
-        base_pool = (question_pool("mixed", selected_level, content_levels=levels) +
-                     question_pool("kanji", selected_level, content_levels=levels) +
-                     question_pool("grammar", selected_level, content_levels=levels))
+        base_pool = question_pool("mixed", selected_level, content_levels=levels)
         pool = [item for item in base_pool if item[3] in ids]
     if mode in ("review", "weak"):
         ids = due_ids if mode == "review" else weak_ids

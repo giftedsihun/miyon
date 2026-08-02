@@ -64,6 +64,8 @@ class Database:
         for column, definition in (("due_date", "TEXT"), ("interval_step", "INTEGER NOT NULL DEFAULT 0")):
             if column not in columns:
                 self.connection.execute(f"ALTER TABLE review ADD COLUMN {column} {definition}")
+        if "due_date" not in columns:
+            self.connection.execute("UPDATE review SET due_date = ? WHERE due_date IS NULL", (date.today().isoformat(),))
         activity_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(activity)")}
         if "answers" not in activity_columns:
             self.connection.execute("ALTER TABLE activity ADD COLUMN answers INTEGER NOT NULL DEFAULT 0")
@@ -111,7 +113,9 @@ class Database:
         staged_connection = None
         try:
             source_connection = sqlite3.connect(f"file:{source.resolve().as_posix()}?mode=ro", uri=True)
-            source_connection.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+            tables = {row[0] for row in source_connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"settings", "review", "activity"}.issubset(tables):
+                raise ValueError("선택한 파일은 하루 일본어 학습 기록 백업이 아닙니다.")
             staged_connection = sqlite3.connect(staging)
             source_connection.backup(staged_connection)
             staged_connection.close()
@@ -168,23 +172,24 @@ class Database:
         return True, current_day + 1
 
     def record_answer(self, content_id, correct, quality="normal"):
-        current = self.connection.execute("SELECT interval_step FROM review WHERE content_id=?", (content_id,)).fetchone()
-        # Preserve the former first-success interval (2 days) for a normal answer.
-        previous_step = current[0] if current else 0
-        if correct:
-            step_change = {"hard": 0, "normal": 1, "easy": 2}.get(quality, 1)
-            step = min(max(0, previous_step + step_change), len(SRS_DAYS) - 1)
-        else:
-            step = 0
-        due = date.today() + timedelta(days=SRS_DAYS[step] if correct else 0)
-        field = "correct" if correct else "wrong"
-        self.connection.execute(
-            f"INSERT INTO review(content_id,{field},last_seen,due_date,interval_step) VALUES(?,1,?,?,?) "
-            f"ON CONFLICT(content_id) DO UPDATE SET {field}={field}+1,last_seen=excluded.last_seen,due_date=excluded.due_date,interval_step=excluded.interval_step",
-            (content_id, date.today().isoformat(), due.isoformat(), step),
-        )
-        self.connection.execute("INSERT INTO activity(day,completed,answers) VALUES(?,0,1) ON CONFLICT(day) DO UPDATE SET answers=answers+1", (date.today().isoformat(),))
-        self.complete_today()
+        with self.connection:
+            current = self.connection.execute("SELECT interval_step FROM review WHERE content_id=?", (content_id,)).fetchone()
+            # Preserve the former first-success interval (2 days) for a normal answer.
+            previous_step = current[0] if current else 0
+            if correct:
+                step_change = {"hard": 0, "normal": 1, "easy": 2}.get(quality, 1)
+                step = min(max(0, previous_step + step_change), len(SRS_DAYS) - 1)
+            else:
+                step = 0
+            due = date.today() + timedelta(days=SRS_DAYS[step] if correct else 0)
+            field = "correct" if correct else "wrong"
+            self.connection.execute(
+                f"INSERT INTO review(content_id,{field},last_seen,due_date,interval_step) VALUES(?,1,?,?,?) "
+                f"ON CONFLICT(content_id) DO UPDATE SET {field}={field}+1,last_seen=excluded.last_seen,due_date=excluded.due_date,interval_step=excluded.interval_step",
+                (content_id, date.today().isoformat(), due.isoformat(), step),
+            )
+            self.connection.execute("INSERT INTO activity(day,completed,answers) VALUES(?,0,1) ON CONFLICT(day) DO UPDATE SET answers=answers+1", (date.today().isoformat(),))
+            self.connection.execute("INSERT INTO activity(day,completed) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET completed=1", (date.today().isoformat(),))
         return step, due
 
     def due_items(self, limit=20):
@@ -371,7 +376,8 @@ class Database:
 
     def completed_practice_ids(self, prefix=None):
         if prefix:
-            rows = self.connection.execute("SELECT content_id FROM practice_progress WHERE content_id LIKE ?", (prefix + "%",))
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            rows = self.connection.execute("SELECT content_id FROM practice_progress WHERE content_id LIKE ? ESCAPE '\\'", (escaped + "%",))
         else:
             rows = self.connection.execute("SELECT content_id FROM practice_progress")
         return {row[0] for row in rows}
@@ -483,7 +489,7 @@ class Database:
             )
         )
         rows.extend(
-            ("review", "", content_id, correct, wrong, due_date, SRS_DAYS[interval_step], "", "", "", "", "", "")
+            ("review", "", content_id, correct, wrong, due_date, SRS_DAYS[min(max(0, interval_step), len(SRS_DAYS) - 1)], "", "", "", "", "", "")
             for content_id, correct, wrong, due_date, interval_step in self.connection.execute(
                 "SELECT content_id,correct,wrong,due_date,interval_step FROM review ORDER BY last_seen,content_id"
             )

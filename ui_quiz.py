@@ -6,7 +6,7 @@ from tkinter import ttk
 
 def build_quiz_screen(app, active, title, subtitle):
     main = app.page(active, title, subtitle)
-    app.quiz_progress = ttk.Progressbar(main, maximum=app.quiz_limit)
+    app.quiz_progress = ttk.Progressbar(main, maximum=max(1, app.quiz_limit - 1))
     app.quiz_progress.pack(fill="x", pady=(0, 16))
     app.quiz_prompt = tk.Label(main, font=("맑은 고딕", 22, "bold"), fg="#165b52", bg="white", wraplength=650, justify="center", height=4)
     app.quiz_prompt.pack(fill="x", pady=6)
@@ -32,7 +32,7 @@ def render_question(app, prompt, answer, content_id, options, explanation, study
     else:
         app.quiz_prompt.config(text=prompt)
     app.quiz_feedback.config(text=f"문제 {app.quiz_position + 1} / {app.quiz_limit}", fg="#66776f")
-    app.quiz_progress["value"] = app.quiz_position
+    app.quiz_progress["value"] = max(0, app.quiz_position)
     offset = 0
     if listening:
         controls = tk.Frame(app.quiz_options, bg="#f4f6f0")
