@@ -367,6 +367,7 @@ class JapaneseStudyApp(tk.Tk):
 
     def start_zundamon_api(self, status=None):
         url = str(self.db.get("zundamon_url", ZUNDAMON_URL)).strip().rstrip("/")
+        backend = self.zundamon_backend()
 
         def set_status(message, color):
             if status:
@@ -377,7 +378,7 @@ class JapaneseStudyApp(tk.Tk):
                 set_status("ずんだもん AI 서버를 이미 시작하고 있어요...", "#66776f")
                 return
             try:
-                if self.zundamon_backend() == "ttsclient":
+                if backend == "ttsclient":
                     self._start_ttsclient_server(set_status, url=TTS_CLIENT_URL)
                     return
                 self._start_gpt_sovits_server(set_status, url)
@@ -643,7 +644,9 @@ class JapaneseStudyApp(tk.Tk):
             try:
                 if not self.zundamon_api_available(url, timeout=2):
                     if ttsclient_ready():
-                        self.start_zundamon_api(status)
+                        def server_status(message, color):
+                            if status: self.after(0, lambda: status.config(text=message, fg=color) if status.winfo_exists() else None)
+                        self._start_ttsclient_server(server_status, url=TTS_CLIENT_URL)
                         for _ in range(600):
                             if self.zundamon_api_available(url, timeout=2):
                                 break
@@ -684,7 +687,15 @@ class JapaneseStudyApp(tk.Tk):
             try:
                 if not self.zundamon_api_available(url, timeout=2):
                     if ready():
-                        self.start_zundamon_api(status)
+                        def kick_off():
+                            try:
+                                self.start_zundamon_api(status)
+                            except Exception:
+                                pass
+                        try:
+                            self.after(0, kick_off)
+                        except RuntimeError:
+                            pass
                         for _ in range(180):
                             if self.zundamon_api_available(url, timeout=2):
                                 break
@@ -843,6 +854,7 @@ class JapaneseStudyApp(tk.Tk):
         self.quiz_session = QuizSession(mode, pool, quiz_limit or default_limit, time_limit)
         self.quiz_mode, self.quiz_pool = mode, self.quiz_session.pool
         self.quiz_limit, self.quiz_time_limit = self.quiz_session.limit, time_limit
+        self.quiz_score = 0
         self.quiz_time_remaining = self.quiz_session.time_remaining
         self.quiz_answered = False; self.quiz_quality_pending = False; self.quiz_after_id = None; self.quiz_option_values = []
         self.quiz_incorrect_questions = self.quiz_session.incorrect_questions
@@ -954,6 +966,8 @@ class JapaneseStudyApp(tk.Tk):
     def clear_quiz_shortcuts(self):
         if getattr(self, "quiz_timer_after_id", None):
             self.after_cancel(self.quiz_timer_after_id); self.quiz_timer_after_id = None
+        if getattr(self, "quiz_after_id", None):
+            self.after_cancel(self.quiz_after_id); self.quiz_after_id = None
         for sequence in ("<Key-1>", "<Key-2>", "<Key-3>", "<Key-4>", "<Return>", "<space>"):
             self.unbind(sequence)
 

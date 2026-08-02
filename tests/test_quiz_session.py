@@ -2,7 +2,8 @@ import random
 import unittest
 
 from quiz_session import QuizSession
-from tts_service import endpoint_privacy_notice, is_local_endpoint
+from tts_service import (endpoint_privacy_notice, is_local_endpoint, is_single_kana,
+                         kana_speech_text, voice_cache_path)
 from ui_dialogs import (show_backup_restore, show_display_settings, show_theme_settings,
                         show_voice_settings)
 from ui_catalog import render_catalog
@@ -50,6 +51,20 @@ class QuizSessionTestCase(unittest.TestCase):
         self.assertFalse(is_local_endpoint("https://voice.example.com"))
         self.assertIn("이 PC", endpoint_privacy_notice("http://127.0.0.1:9880"))
         self.assertIn("전송", endpoint_privacy_notice("https://voice.example.com"))
+
+    def test_single_kana_gets_sentence_final_marker_for_stable_intonation(self):
+        self.assertTrue(is_single_kana("あ"))
+        self.assertTrue(is_single_kana("カ"))
+        self.assertTrue(is_single_kana("ん"))
+        self.assertFalse(is_single_kana("ねこ"))
+        self.assertFalse(is_single_kana("a"))
+        self.assertEqual(kana_speech_text("あ"), "あ。")
+        self.assertEqual(kana_speech_text("カ"), "カ。")
+        self.assertEqual(kana_speech_text("ねこ"), "ねこ")
+
+    def test_voice_cache_key_is_consistent_with_speech_text(self):
+        self.assertEqual(voice_cache_path("あ"), voice_cache_path("あ。"))
+        self.assertNotEqual(voice_cache_path("あ"), voice_cache_path("ねこ"))
 
     def test_ui_modules_expose_renderers_without_creating_a_tk_root(self):
         self.assertTrue(callable(build_quiz_screen))
