@@ -142,6 +142,7 @@ class JapaneseStudyApp(tk.Tk):
             pass
         self.zundamon_start_lock = threading.Lock()
         self.zundamon_install_lock = threading.Lock()
+        self.speech_lock = threading.Lock()
         self.zundamon_process = None
         self.speech_audio_path = None
         self.configure_styles(); self.show_home()
@@ -663,7 +664,7 @@ class JapaneseStudyApp(tk.Tk):
                     raise OSError("ずんだもん API가 WAV 오디오를 반환하지 않았습니다.")
                 path = tempfile.NamedTemporaryFile(prefix="haru_japanese_", suffix=".wav", delete=False).name
                 with open(path, "wb") as audio_file: audio_file.write(audio)
-                self.speech_audio_path = path
+                self._set_speech_audio_path(path)
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
                 if status: self.after(0, lambda: status.config(text="ずんだもん AI 음성으로 재생 중이에요.", fg="#165b52"))
             except Exception:
@@ -714,7 +715,7 @@ class JapaneseStudyApp(tk.Tk):
                     raise OSError("ずんだもん API가 WAV 오디오를 반환하지 않았습니다.")
                 path = tempfile.NamedTemporaryFile(prefix="haru_japanese_", suffix=".wav", delete=False).name
                 with open(path, "wb") as audio_file: audio_file.write(audio)
-                self.speech_audio_path = path
+                self._set_speech_audio_path(path)
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
                 if status: self.after(0, lambda: status.config(text="ずんだもん AI 음성으로 재생 중이에요.", fg="#165b52"))
             except Exception:
@@ -723,14 +724,27 @@ class JapaneseStudyApp(tk.Tk):
         threading.Thread(target=run, daemon=True).start()
 
 
-    def stop_speech(self):
-        winsound.PlaySound(None, winsound.SND_PURGE)
-        if self.speech_audio_path:
+    def _set_speech_audio_path(self, path):
+        """Swap the active speech file, cleaning up any superseded temp file."""
+        with self.speech_lock:
+            previous = self.speech_audio_path
+            self.speech_audio_path = path
+        if previous and previous != path:
             try:
-                Path(self.speech_audio_path).unlink(missing_ok=True)
+                Path(previous).unlink(missing_ok=True)
             except OSError:
                 pass
+
+    def stop_speech(self):
+        winsound.PlaySound(None, winsound.SND_PURGE)
+        with self.speech_lock:
+            path = self.speech_audio_path
             self.speech_audio_path = None
+        if path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def show_kanji_writing(self):
         return _render_kanji_writing(self)

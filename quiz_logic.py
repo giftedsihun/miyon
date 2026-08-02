@@ -95,12 +95,18 @@ def question_pool(mode, selected_level, kana_set=None, content_levels=None,
                 pool.append((f"[문법 빈칸] {prompt}", answer, distractors, f"{level}:cloze:{prompt}"))
         if mode in ("sentence", "mixed", "mock"):
             for korean, chunks, _ in SENTENCE_BUILDING[level]:
+                if len(chunks) < 3:
+                    continue
                 answer = " ".join(chunks)
                 alternatives = set()
-                while len(alternatives) < 3:
+                for _ in range(50):
                     candidate = " ".join(random.sample(chunks, len(chunks)))
                     if candidate != answer:
                         alternatives.add(candidate)
+                    if len(alternatives) >= 3:
+                        break
+                if len(alternatives) < 3:
+                    continue
                 pool.append((f"[문장 만들기] {korean}\n알맞은 문장 순서는?", answer, list(alternatives), f"{level}:sentence:{'|'.join(chunks)}"))
         if mode == "dictation":
             for word, reading, _, _ in content["words"]:

@@ -60,6 +60,7 @@ class QuizSession:
             self.quality_pending = True
         else:
             self.incorrect_questions.append((prompt, answer, distractors, content_id))
+            self.answered = False
             self.position += 1
         return {"correct": correct, "answer": answer, "content_id": content_id}
 
@@ -67,6 +68,7 @@ class QuizSession:
         if not self.answered or not self.quality_pending or not self.current:
             return None
         self.quality_pending = False
+        self.answered = False
         content_id = self.current[3]
         self.position += 1
         return content_id

@@ -31,10 +31,13 @@ class Database:
         self.initialize()
 
     def close(self):
-        try:
-            self.connection.close()
-        except sqlite3.Error:
-            pass
+        connection = getattr(self, "connection", None)
+        if connection is not None:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
+            self.connection = None
 
     def initialize(self):
         self.connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -65,9 +68,6 @@ class Database:
         if "answers" not in activity_columns:
             self.connection.execute("ALTER TABLE activity ADD COLUMN answers INTEGER NOT NULL DEFAULT 0")
         self.connection.commit()
-
-    def close(self):
-        self.connection.close()
 
     def create_backup(self, destination=None):
         """Create a consistent SQLite snapshot without closing the app database."""

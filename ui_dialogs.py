@@ -218,7 +218,7 @@ def show_voice_settings(app, start=False):
                     raise OSError("API 서버가 응답하지 않았습니다.")
                 engine = "번들 ttsclient" if backend.get() == "ttsclient" else "GPT-SoVITS"
                 app.after(0, lambda: status.config(text=f"연결됨: ずんだもん {engine} 서버를 찾았어요.", fg="#165b52"))
-            except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+            except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as error:
                 app.after(0, lambda: status.config(text=f"연결할 수 없어요. API 서버 실행과 주소를 확인해 주세요. ({error})", fg="#b95140"))
         threading.Thread(target=run, daemon=True).start()
 

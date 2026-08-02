@@ -444,7 +444,7 @@ def _render_category_results(app, main):
         item = app.card(records); item.grid(row=index // 4, column=index % 4, sticky="nsew", padx=4, pady=4)
         records.columnconfigure(index % 4, weight=1)
         tk.Label(item, text=QUIZ_MODE_LABELS.get(mode, mode), font=("맑은 고딕", 10, "bold"), fg="#165b52", bg="white").pack(anchor="w", padx=12, pady=(11, 2))
-        tk.Label(item, text=f"{round(score * 100 / total)}% · {score}/{total}", font=("맑은 고딕", 11), fg="#66776f", bg="white").pack(anchor="w", padx=12, pady=(0, 11))
+        tk.Label(item, text=f"{round(score * 100 / total) if total else 0}% · {score}/{total}", font=("맑은 고딕", 11), fg="#66776f", bg="white").pack(anchor="w", padx=12, pady=(0, 11))
 
 
 def _render_level_results(app, main):
@@ -454,7 +454,7 @@ def _render_level_results(app, main):
     tk.Label(main, text="레벨별 실전 준비도", font=("맑은 고딕", 16, "bold"), fg="#173c35", bg="#f4f6f0").pack(anchor="w", pady=(26, 8))
     for level, score, total in levels:
         row = tk.Frame(main, bg="#f4f6f0"); row.pack(fill="x", pady=3)
-        rate = round(score * 100 / total)
+        rate = round(score * 100 / total) if total else 0
         tk.Label(row, text=level, width=5, font=("맑은 고딕", 11, "bold"), fg="#165b52", bg="#f4f6f0").pack(side="left")
         ttk.Progressbar(row, maximum=100, value=rate).pack(side="left", fill="x", expand=True, padx=10)
         tk.Label(row, text=f"{rate}% ({score}/{total})", font=("맑은 고딕", 10), fg="#66776f", bg="#f4f6f0").pack(side="right")

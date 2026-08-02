@@ -38,6 +38,32 @@ class QuizSessionTestCase(unittest.TestCase):
         self.assertEqual(session.mock_scores, {"어휘": [0, 1]})
         self.assertEqual(session.incorrect_questions, pool)
 
+    def test_multiple_questions_can_be_answered_in_sequence(self):
+        pool = [("질문1", "정답1", ["오답1", "오답2", "오답3"], "N5:word:私"),
+                ("질문2", "정답2", ["오답4", "오답5", "오답6"], "N5:word:花")]
+        session = QuizSession("words", pool, 2, randomizer=random.Random(4))
+
+        for expected_score in (1, 2):
+            _, answer, _, _ = session.current
+            self.assertTrue(session.answer(answer, lambda _: "어휘")["correct"])
+            self.assertEqual(session.score, expected_score)
+            self.assertEqual(session.confirm_quality(), session.pool[session.position - 1][3])
+        self.assertTrue(session.complete)
+
+    def test_wrong_then_correct_answer_keeps_moving_forward(self):
+        pool = [("질문1", "정답1", ["오답1", "오답2", "오답3"], "N5:word:私"),
+                ("질문2", "정답2", ["오답4", "오답5", "오답6"], "N5:word:花")]
+        session = QuizSession("words", pool, 2, randomizer=random.Random(4))
+
+        _, answer1, distractors1, content_id1 = session.current
+        self.assertFalse(session.answer(distractors1[0], lambda _: "어휘")["correct"])
+        self.assertFalse(session.complete)
+        _, answer2, _, _ = session.current
+        self.assertTrue(session.answer(answer2, lambda _: "어휘")["correct"])
+        self.assertEqual(session.score, 1)
+        self.assertEqual(session.confirm_quality(), session.pool[session.position - 1][3])
+        self.assertTrue(session.complete)
+
     def test_timer_expires_after_displaying_zero(self):
         session = QuizSession("mock", [("q", "a", ["b", "c", "d"], "N5:word:私")], 1, time_limit=1)
 
