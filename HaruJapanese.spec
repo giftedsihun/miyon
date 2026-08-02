@@ -5,7 +5,7 @@ a = Analysis(
     ['japanese_study.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('voice_cache', 'voice_cache')],
     hiddenimports=['content', 'learning_services', 'progress_logic', 'quiz_session', 'storage', 'tts_service', 'study_logic', 'quiz_logic', 'ui_catalog', 'ui_dialogs', 'ui_quiz', 'ui_screens', 'ui_practice', 'app_info'],
     hookspath=[],
     hooksconfig={},

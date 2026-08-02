@@ -109,7 +109,7 @@ VOICE_CACHE_DIRECTORY = _voice_cache_directory()
 
 def voice_cache_path(text, speed=1.0):
     """Return the on-disk wav path for a text+speed pair (deterministic hash)."""
-    key = hashlib.sha1(f"{text}|{speed:.2f}".encode("utf-8")).hexdigest()
+    key = hashlib.sha1(f"{kana_speech_text(text)}|{speed:.2f}".encode("utf-8")).hexdigest()
     return VOICE_CACHE_DIRECTORY / f"{key}.wav"
 
 
@@ -119,6 +119,22 @@ def cached_voice(text, speed=1.0):
     if path.is_file() and path.stat().st_size > 1024:
         return path
     return None
+
+
+# 단일 히라가나/카타카나(U+3040–U+30FF)만으로 이뤄진 1음절 입력은 GPT-SoVITS가 문맥 없이
+# 부자연스럽게 발음하므로, 끝맺음 문장부호를 붙여 운율을 안정화합니다.
+SINGLE_KANA_SUFFIX = "。"
+
+
+def is_single_kana(text):
+    return len(text) == 1 and "\u3040" <= text <= "\u30ff"
+
+
+def kana_speech_text(text):
+    """Return the text actually sent to TTS for a single kana syllable."""
+    if is_single_kana(text):
+        return text + SINGLE_KANA_SUFFIX
+    return text
 
 
 # ttsclient 백엔드 (w-okada/ttsclient REST API 서버)
@@ -157,7 +173,7 @@ def ttsclient_generate_voice(text, speed=1.0):
     payload = json.dumps({
         "voice_character_slot_index": TTS_CLIENT_VOICE_CHARACTER_SLOT_INDEX,
         "reference_voice_slot_index": TTS_CLIENT_REFERENCE_VOICE_SLOT_INDEX,
-        "text": text,
+        "text": kana_speech_text(text),
         "language": "all_ja",
         "speed": speed,
         "cutMethod": "No slice",

@@ -12,7 +12,7 @@ import threading
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, r"C:\Users\games\Desktop\miyon")
 
-from tts_service import voice_cache_path, ttsclient_generate_voice, api_available, TTS_CLIENT_URL
+from tts_service import voice_cache_path, ttsclient_generate_voice, api_available, TTS_CLIENT_URL, kana_speech_text
 import content as c
 
 

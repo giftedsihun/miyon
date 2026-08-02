@@ -65,8 +65,8 @@ from tts_service import (ZUNDAMON_API_DIRECTORY, ZUNDAMON_DIRECTORY, ZUNDAMON_GP
                            BUNDLED_ZUNDAMON_DIRECTORY, api_available, download_file, file_ready, installation_summary,
                           endpoint_privacy_notice, missing_commands, prerequisite_error, run_command,
                           runtime_environment, runtime_python, server_command, ready, speak_windows_native,
-                          TTS_CLIENT_DIRECTORY, TTS_CLIENT_RUNTIME, TTS_CLIENT_SERVER_LOG, TTS_CLIENT_URL,
-                          ttsclient_generate_voice, ttsclient_ready, ttsclient_server_command,
+                           TTS_CLIENT_DIRECTORY, TTS_CLIENT_RUNTIME, TTS_CLIENT_SERVER_LOG, TTS_CLIENT_URL,
+                           ttsclient_generate_voice, ttsclient_ready, ttsclient_server_command, kana_speech_text,
                           cached_voice)
 
 APP_TITLE = "하루 일본어"
@@ -677,7 +677,7 @@ class JapaneseStudyApp(tk.Tk):
             if status: status.config(text="AI 음성 설정 값이 올바르지 않습니다. 홈의 AI 음성 설정을 확인해 주세요.", fg="#b95140")
             return
         payload = json.dumps({
-            "text": text, "text_language": "ja", "speed": max(0.5, min(2.0, speed)),
+            "text": kana_speech_text(text), "text_language": "ja", "speed": max(0.5, min(2.0, speed)),
         }).encode("utf-8")
         if status: status.config(text="ずんだもん AI 서버와 음성을 준비하고 있어요...", fg="#66776f")
         def run():
