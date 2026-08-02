@@ -90,9 +90,16 @@ ZUNDAMON_PYTHON_PACKAGES = (
 )
 
 # 사전 생성된 즈단몬 음성 캐시: speak_japanese가 실시간 서버 대신 즉시 재생합니다.
-# 패키징된 EXE 실행 시에는 EXE 옆의 voice_cache/를, 개발 모드에서는 소스 트리의 voice_cache/를 사용합니다.
+# 1) onefile EXE: --add-data로 내장된 voice_cache는 sys._MEIPASS에 풀립니다.
+# 2) 포터블 EXE 옆 배포: EXE와 같은 폴더의 voice_cache/를 사용합니다.
+# 3) 개발 모드: 소스 트리의 voice_cache/를 사용합니다.
 def _voice_cache_directory():
     if getattr(sys, "frozen", False):
+        bundled = getattr(sys, "_MEIPASS", None)
+        if bundled:
+            candidate = Path(bundled) / "voice_cache"
+            if candidate.is_dir():
+                return candidate
         return Path(sys.executable).resolve().parent / "voice_cache"
     return Path(__file__).resolve().parent / "voice_cache"
 
