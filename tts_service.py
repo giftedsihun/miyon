@@ -3,7 +3,6 @@
 Tkinter scheduling, dialogs, and saved user preferences remain in the UI layer.
 """
 
-import base64
 import hashlib
 import json
 import shutil
@@ -317,21 +316,18 @@ def download_file(source, destination, expected_sha256=None, attempts=3):
 
 
 def speak_windows_native(text, rate=0):
-    """Fallback TTS using Windows built-in SAPI.SpVoice (zero extra downloads or installations)."""
+    """Fallback TTS using Windows SAPI directly via comtypes (no PowerShell subprocess)."""
     try:
+        from comtypes.client import CreateObject
         sapi_rate = max(-10, min(10, int(rate)))
-        clean_text = str(text).replace("'", "''").replace("\n", " ")
-        ps_script = (
-            f"$v = New-Object -ComObject SAPI.SpVoice; "
-            f"$v.Rate = {sapi_rate}; "
-            f"foreach ($voice in $v.GetVoices()) {{ "
-            f"if ($voice.GetDescription() -like '*Japanese*' -or $voice.GetDescription() -like '*Haruka*' -or $voice.GetDescription() -like '*Ayumi*' -or $voice.GetDescription() -like '*Ichiro*') {{ $v.Voice = $voice; break }} "
-            f"}}; "
-            f"$v.Speak('{clean_text}')"
-        )
-        encoded_script = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
-        command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_script]
-        subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        voice = CreateObject("SAPI.SpVoice")
+        for candidate in voice.GetVoices():
+            description = candidate.GetDescription()
+            if any(keyword in description for keyword in ("Japanese", "Haruka", "Ayumi", "Ichiro")):
+                voice.Voice = candidate
+                break
+        voice.Rate = sapi_rate
+        voice.Speak(str(text))
         return True
     except Exception:
         return False
