@@ -90,7 +90,14 @@ ZUNDAMON_PYTHON_PACKAGES = (
 )
 
 # 사전 생성된 즈단몬 음성 캐시: speak_japanese가 실시간 서버 대신 즉시 재생합니다.
-VOICE_CACHE_DIRECTORY = Path(__file__).resolve().parent / "voice_cache"
+# 패키징된 EXE 실행 시에는 EXE 옆의 voice_cache/를, 개발 모드에서는 소스 트리의 voice_cache/를 사용합니다.
+def _voice_cache_directory():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "voice_cache"
+    return Path(__file__).resolve().parent / "voice_cache"
+
+
+VOICE_CACHE_DIRECTORY = _voice_cache_directory()
 
 
 def voice_cache_path(text, speed=1.0):
