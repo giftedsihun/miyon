@@ -123,6 +123,8 @@ def render_catalog(app, category, items=None, subtitle=None, content_level=None)
         ttk.Button(controls, text="처음부터", command=lambda: reset_catalog()).pack(side="left", padx=4)
     ttk.Button(controls, text="현재 카드 퀴즈", style="Accent.TButton", command=start_visible_quiz).pack(side="left", padx=4)
     ttk.Button(controls, text="내 메모", command=edit_note).pack(side="left", padx=4)
+    if category == "words":
+        ttk.Button(controls, text="단어 발음", command=lambda: app.speak_japanese(visible[app.catalog_index][0]) if visible else None).pack(side="left", padx=4)
     if category in ("words", "grammar"):
         ttk.Button(controls, text="예문 듣기", command=lambda: app.speak_japanese(visible[app.catalog_index][3] if category == "words" else visible[app.catalog_index][2]) if visible else None).pack(side="left", padx=4)
     if category == "kanji":
